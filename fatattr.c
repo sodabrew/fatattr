@@ -147,11 +147,11 @@ int main(int argc, char **argv)
         invalidarg(argv[argpos]);
       dosetattrs = 1;
     } else {
+      // The first arg without a +/- in front begins the filenames.
       break;
     }
   }
 
-  // The first arg without a +/- in front begins the filenames.
   for (; argpos < argc; argpos++) {
     file = argv[argpos];
     if (getattrs(file, &attrs) == 0) {
