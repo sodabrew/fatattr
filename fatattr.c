@@ -21,20 +21,35 @@
 #include <errno.h>
 #include <unistd.h>
 #include <string.h>
+#include <stdlib.h>
 #include <stdio.h>
 
-int getattr(char *file, __u32 *attrs)
+int getattrs(char *file, __u32 *attrs)
+{
+  return _ioctl_attrs(FAT_IOCTL_GET_ATTRIBUTES, file, attrs);
+}
+
+int setattrs(char *file, __u32 *attrs)
+{
+  return _ioctl_attrs(FAT_IOCTL_SET_ATTRIBUTES, file, attrs);
+}
+
+int _ioctl_attrs(int ioctlnum, char *file, __u32 *attrs)
 {
   int fd;
 
+  // Interesting, we don't need a read-write handle to call the SET ioctl.
   fd = open(file, O_RDONLY | O_NOATIME);
   if (fd < 0) {
-    fprintf(stderr, "Error opening file %s\n", strerror(errno));
+    fprintf(stderr, "Error opening '%s': %s\n", file, strerror(errno));
     goto err;
   }
 
-  if (ioctl(fd, FAT_IOCTL_GET_ATTRIBUTES, attrs) != 0) {
-    fprintf(stderr, "Error reading attributes: %s\n", strerror(errno));
+  if (ioctl(fd, ioctlnum, attrs) != 0) {
+    if (ioctlnum == FAT_IOCTL_GET_ATTRIBUTES)
+      fprintf(stderr, "Error reading attributes: %s\n", strerror(errno));
+    else if (ioctlnum == FAT_IOCTL_SET_ATTRIBUTES)
+      fprintf(stderr, "Error writing attributes: %s\n", strerror(errno));
     goto err;
   }
 
@@ -46,7 +61,7 @@ int getattr(char *file, __u32 *attrs)
     return -1;
 }
 
-void printattr(char *file, __u32 attrs)
+void printattrs(char *file, __u32 attrs)
 {
   char out[8];
   out[0] = attrs & ATTR_NONE   ? 'n' : '-';
@@ -60,83 +75,77 @@ void printattr(char *file, __u32 attrs)
   printf("%s %s\n", out, file);
 }
 
-int addattr(__u32 *attrs, char arg)
+int makeaddattrs(__u32 *attrs, char arg)
 {
   switch (arg) {
-  case 'n':
-    *attrs |= ATTR_NONE;
-    break;
-  case 'r':
-    *attrs |= ATTR_RO;
-    break;
-  case 'h':
-    *attrs |= ATTR_HIDDEN;
-    break;
-  case 's':
-    *attrs |= ATTR_SYS;
-    break;
-  case 'v':
-    *attrs |= ATTR_VOLUME;
-    break;
-  case 'd':
-    *attrs |= ATTR_DIR;
-    break;
-  case 'a':
-    *attrs |= ATTR_ARCH;
-    break;
+  case 'n': *attrs |= ATTR_NONE;   break;
+  case 'r': *attrs |= ATTR_RO;     break;
+  case 'h': *attrs |= ATTR_HIDDEN; break;
+  case 's': *attrs |= ATTR_SYS;    break;
+  case 'v': *attrs |= ATTR_VOLUME; break;
+  case 'd': *attrs |= ATTR_DIR;    break;
+  case 'a': *attrs |= ATTR_ARCH;   break;
   default:
     return -1;
   }
   return 0;
 }
 
-int delattr(__u32 *attrs, char arg)
+int makedelattrs(__u32 *attrs, char arg)
 {
   switch (arg) {
-  case 'n':
-    *attrs &= ~ATTR_NONE;
-    break;
-  case 'r':
-    *attrs &= ~ATTR_RO;
-    break;
-  case 'h':
-    *attrs &= ~ATTR_HIDDEN;
-    break;
-  case 's':
-    *attrs &= ~ATTR_SYS;
-    break;
-  case 'v':
-    *attrs &= ~ATTR_VOLUME;
-    break;
-  case 'd':
-    *attrs &= ~ATTR_DIR;
-    break;
-  case 'a':
-    *attrs &= ~ATTR_ARCH;
-    break;
+  case 'n': *attrs |= ATTR_NONE;   break;
+  case 'r': *attrs |= ATTR_RO;     break;
+  case 'h': *attrs |= ATTR_HIDDEN; break;
+  case 's': *attrs |= ATTR_SYS;    break;
+  case 'v': *attrs |= ATTR_VOLUME; break;
+  case 'd': *attrs |= ATTR_DIR;    break;
+  case 'a': *attrs |= ATTR_ARCH;   break;
   default:
     return -1;
   }
   return 0;
+}
+
+void invalidarg(char *arg)
+{
+  fprintf(stderr, "Invalid argument: %s\n", arg);
+  exit(2);
+}
+
+void exitusage(void)
+{
+  fprintf(stderr, "Usage: fatattr [+-nrhsvda] <filenames...>\n");
+  exit(1);
 }
 
 int main(int argc, char **argv)
 {
-  __u32 attrs = 0, setattrs = 0;
+  __u32 attrs = 0, addattrs = 0, delattrs = 0;
   char *file = NULL;
-  int argpos;
+  int argpos, dosetattrs = 0;
 
   if (argc < 2) {
-    printf("Usage: fatattr [+-nrhsvda] <filenames...>\n");
-    return 1;
+    exitusage();
   }
 
   // Our own little getopt that does +/- options.
   for (argpos = 1; argpos < argc; argpos++) {
+    if (argv[argpos][0] == '-' && argv[argpos][1] == '-') {
+      // Everything after -- is a filename so you can run this on files
+      // starting with + or -.
+      argpos++;
+      break;
+    }
+
     if (argv[argpos][0] == '-') {
-      delattr(&setattrs, argv[argpos][1]);
+      if (makedelattrs(&delattrs, argv[argpos][1]) < 0)
+        invalidarg(argv[argpos]);
+      dosetattrs = 1;
     } else if (argv[argpos][0] == '+') {
-      addattr(&setattrs, argv[argpos][1]);
+      if (makeaddattrs(&addattrs, argv[argpos][1]) < 0)
+        invalidarg(argv[argpos]);
+      dosetattrs = 1;
     } else {
       break;
     }
@@ -145,11 +154,16 @@ int main(int argc, char **argv)
   // The first arg without a +/- in front begins the filenames.
   for (; argpos < argc; argpos++) {
     file = argv[argpos];
-    if (getattr(file, &attrs) < 0) {
-      // Error
-      continue;
-    } else {
-      printattr(file, attrs);
+    if (getattrs(file, &attrs) == 0) {
+      if (dosetattrs) {
+        // Add has precedence over delete.
+	attrs &= ~delattrs;
+	attrs |= addattrs;
+        setattrs(file, &attrs);
+	// Get the attributes again to make sure it worked.
+        getattrs(file, &attrs);
+      }
+      printattrs(file, attrs);
     }
   }
 
