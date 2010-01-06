@@ -26,15 +26,15 @@
 
 int getattrs(char *file, __u32 *attrs)
 {
-  return _ioctl_attrs(FAT_IOCTL_GET_ATTRIBUTES, file, attrs);
+  return _ioctl_attrs(file, attrs, FAT_IOCTL_GET_ATTRIBUTES, "reading");
 }
 
 int setattrs(char *file, __u32 *attrs)
 {
-  return _ioctl_attrs(FAT_IOCTL_SET_ATTRIBUTES, file, attrs);
+  return _ioctl_attrs(file, attrs, FAT_IOCTL_SET_ATTRIBUTES, "writing");
 }
 
-int _ioctl_attrs(int ioctlnum, char *file, __u32 *attrs)
+int _ioctl_attrs(char *file, __u32 *attrs, int ioctlnum, char *verb)
 {
   int fd;
 
@@ -46,10 +46,7 @@ int _ioctl_attrs(int ioctlnum, char *file, __u32 *attrs)
   }
 
   if (ioctl(fd, ioctlnum, attrs) != 0) {
-    if (ioctlnum == FAT_IOCTL_GET_ATTRIBUTES)
-      fprintf(stderr, "Error reading attributes: %s\n", strerror(errno));
-    else if (ioctlnum == FAT_IOCTL_SET_ATTRIBUTES)
-      fprintf(stderr, "Error writing attributes: %s\n", strerror(errno));
+    fprintf(stderr, "Error %s attributes: %s\n", verb, strerror(errno));
     goto err;
   }
 
