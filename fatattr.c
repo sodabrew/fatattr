@@ -24,17 +24,8 @@
 #include <stdlib.h>
 #include <stdio.h>
 
-int getattrs(char *file, __u32 *attrs)
-{
-  return _ioctl_attrs(file, attrs, FAT_IOCTL_GET_ATTRIBUTES, "reading");
-}
-
-int setattrs(char *file, __u32 *attrs)
-{
-  return _ioctl_attrs(file, attrs, FAT_IOCTL_SET_ATTRIBUTES, "writing");
-}
-
-int _ioctl_attrs(char *file, __u32 *attrs, int ioctlnum, char *verb)
+// This function is wrapped by getattrs/setattrs
+static int _ioctl_attrs(char *file, __u32 *attrs, int ioctlnum, char *verb)
 {
   int fd;
 
@@ -56,6 +47,16 @@ int _ioctl_attrs(char *file, __u32 *attrs, int ioctlnum, char *verb)
   err:
     close (fd);
     return -1;
+}
+
+int getattrs(char *file, __u32 *attrs)
+{
+  return _ioctl_attrs(file, attrs, FAT_IOCTL_GET_ATTRIBUTES, "reading");
+}
+
+int setattrs(char *file, __u32 *attrs)
+{
+  return _ioctl_attrs(file, attrs, FAT_IOCTL_SET_ATTRIBUTES, "writing");
 }
 
 void printattrs(char *file, __u32 attrs)
